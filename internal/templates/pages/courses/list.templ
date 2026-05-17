@@ -1,0 +1,79 @@
+package courses
+
+import (
+	"fmt"
+	"strconv"
+	"theology-tracker/internal/models"
+	"theology-tracker/internal/templates/components"
+	"theology-tracker/internal/templates/layout"
+)
+
+templ List(courses []models.CourseWithProgress) {
+	@layout.Base("Courses") {
+		<div class="page-header">
+			<div>
+				<h1>Courses</h1>
+				<p class="page-header__subtitle">
+					{ strconv.Itoa(len(courses)) } course(s) total
+				</p>
+			</div>
+			<a href="/courses/new" class="btn btn--primary">+ New Course</a>
+		</div>
+		if len(courses) == 0 {
+			<div class="empty-state">
+				<p class="empty-state__title">No courses yet</p>
+				<p class="empty-state__body">Add your first course to get started.</p>
+				<a href="/courses/new" class="btn btn--primary">+ New Course</a>
+			</div>
+		} else {
+			<div class="course-list">
+				for _, c := range courses {
+					@courseCard(c)
+				}
+			</div>
+		}
+	}
+}
+
+templ courseCard(c models.CourseWithProgress) {
+	<div class="card" data-course-id={ strconv.FormatInt(c.ID, 10) }>
+		<div class="card__header">
+			<div class="flex items-center gap-2">
+				<h2 class="card__title">
+					<a href={ templ.SafeURL(fmt.Sprintf("/courses/%d", c.ID)) }>
+						{ c.Title }
+					</a>
+				</h2>
+				@components.CourseStatusBadge(c.Status)
+			</div>
+			<div class="flex gap-2">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/courses/%d/edit", c.ID)) }
+					class="btn btn--secondary btn--sm"
+				>Edit</a>
+				<button
+					class="btn btn--danger btn--sm"
+					hx-delete={ fmt.Sprintf("/courses/%d", c.ID) }
+					hx-target="closest [data-course-id]"
+					hx-swap="outerHTML"
+					hx-confirm="Delete this course and all its units? This cannot be undone."
+				>Delete</button>
+			</div>
+		</div>
+		if c.Description != "" {
+			<p class="text-muted text-sm mb-4">{ c.Description }</p>
+		}
+		<div class="flex items-center gap-4" style="margin-bottom: 8px;">
+			<span class="text-sm text-muted">
+				{ strconv.Itoa(c.CompletedWorkItems) }/{ strconv.Itoa(c.TotalWorkItems) } items complete
+			</span>
+			<span class="text-sm text-muted">{ strconv.Itoa(c.ProgressPercent()) }%</span>
+		</div>
+		<div class="progress">
+			<div class="progress__bar" style={ fmt.Sprintf("width: %d%%", c.ProgressPercent()) }></div>
+		</div>
+		if c.TargetCompletionDate != nil {
+			<p class="text-sm text-muted mt-4">Target: { *c.TargetCompletionDate }</p>
+		}
+	</div>
+}

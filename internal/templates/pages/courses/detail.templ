@@ -1,0 +1,183 @@
+package courses
+
+import (
+	"fmt"
+	"strconv"
+	"theology-tracker/internal/models"
+	"theology-tracker/internal/templates/components"
+	"theology-tracker/internal/templates/layout"
+)
+
+templ Detail(course *models.CourseWithProgress, units []models.UnitWithProgress) {
+	@layout.Base(course.Title) {
+		<div class="page-header">
+			<div>
+				<div class="flex items-center gap-2" style="margin-bottom: 4px;">
+					<a href="/courses" class="text-muted text-sm">← Courses</a>
+				</div>
+				<div class="flex items-center gap-2">
+					<h1>{ course.Title }</h1>
+					@components.CourseStatusBadge(course.Status)
+				</div>
+				if course.Description != "" {
+					<p class="page-header__subtitle">{ course.Description }</p>
+				}
+			</div>
+			<div class="flex gap-2">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/courses/%d/edit", course.ID)) }
+					class="btn btn--secondary"
+				>Edit</a>
+				@courseStatusControls(course)
+			</div>
+		</div>
+		<!-- Progress -->
+		<div class="card" style="margin-bottom: 24px;">
+			<div class="flex items-center justify-between" style="margin-bottom: 8px;">
+				<span class="text-sm">
+					{ strconv.Itoa(course.CompletedWorkItems) } of { strconv.Itoa(course.TotalWorkItems) } items complete
+				</span>
+				<span class="text-sm text-muted">{ strconv.Itoa(course.ProgressPercent()) }%</span>
+			</div>
+			<div class="progress">
+				<div class="progress__bar" style={ fmt.Sprintf("width: %d%%", course.ProgressPercent()) }></div>
+			</div>
+			<div class="flex gap-4 mt-4">
+				if course.StartDate != nil {
+					<span class="text-sm text-muted">Started: { *course.StartDate }</span>
+				}
+				if course.TargetCompletionDate != nil {
+					<span class="text-sm text-muted">Target: { *course.TargetCompletionDate }</span>
+				}
+				if course.ActualCompletionDate != nil {
+					<span class="text-sm text-muted">Completed: { *course.ActualCompletionDate }</span>
+				}
+			</div>
+		</div>
+		<!-- Units -->
+		<div class="flex items-center justify-between mb-4">
+			<h2>Units</h2>
+			<a
+				href={ templ.SafeURL(fmt.Sprintf("/courses/%d/units/new", course.ID)) }
+				class="btn btn--primary btn--sm"
+			>+ Add Unit</a>
+		</div>
+		if len(units) == 0 {
+			<div class="empty-state">
+				<p class="empty-state__title">No units yet</p>
+				<p class="empty-state__body">Units break the course into manageable sections.</p>
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/courses/%d/units/new", course.ID)) }
+					class="btn btn--primary"
+				>+ Add Unit</a>
+			</div>
+		} else {
+			<ul
+				class="unit-list"
+				data-sortable
+				data-sortable-url={ fmt.Sprintf("/courses/%d/units/reorder", course.ID) }
+				style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: 8px;"
+			>
+				for _, u := range units {
+					@unitRow(u, course.ID)
+				}
+			</ul>
+		}
+	}
+}
+
+templ courseStatusControls(course *models.CourseWithProgress) {
+	switch course.Status {
+	case models.CourseStatusActive:
+		<button
+			class="btn btn--secondary btn--sm"
+			hx-post={ fmt.Sprintf("/courses/%d/status", course.ID) }
+			hx-vals={ `{"status":"Paused"}` }
+			hx-target="body"
+			hx-push-url="true"
+		>Pause</button>
+		<button
+			class="btn btn--secondary btn--sm"
+			hx-post={ fmt.Sprintf("/courses/%d/status", course.ID) }
+			hx-vals={ `{"status":"Complete"}` }
+			hx-target="body"
+			hx-push-url="true"
+			hx-confirm="Mark this course complete?"
+		>Mark Complete</button>
+	case models.CourseStatusPaused:
+		<button
+			class="btn btn--secondary btn--sm"
+			hx-post={ fmt.Sprintf("/courses/%d/status", course.ID) }
+			hx-vals={ `{"status":"Active"}` }
+			hx-target="body"
+			hx-push-url="true"
+		>Resume</button>
+		<button
+			class="btn btn--secondary btn--sm"
+			hx-post={ fmt.Sprintf("/courses/%d/status", course.ID) }
+			hx-vals={ `{"status":"Complete"}` }
+			hx-target="body"
+			hx-push-url="true"
+			hx-confirm="Mark this course complete?"
+		>Mark Complete</button>
+	case models.CourseStatusComplete:
+		<button
+			class="btn btn--secondary btn--sm"
+			hx-post={ fmt.Sprintf("/courses/%d/status", course.ID) }
+			hx-vals={ `{"status":"Active"}` }
+			hx-target="body"
+			hx-push-url="true"
+			hx-confirm="Reopen this course?"
+		>Reopen</button>
+	}
+}
+
+templ unitRow(u models.UnitWithProgress, courseID int64) {
+	<li
+		class="card"
+		data-id={ strconv.FormatInt(u.ID, 10) }
+		style="display: flex; align-items: center; gap: 12px; padding: 16px;"
+	>
+		<span class="drag-handle" title="Drag to reorder">
+			<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+				<rect x="3" y="4" width="10" height="1.5" rx="1"/>
+				<rect x="3" y="7.25" width="10" height="1.5" rx="1"/>
+				<rect x="3" y="10.5" width="10" height="1.5" rx="1"/>
+			</svg>
+		</span>
+		<div style="flex: 1; min-width: 0;">
+			<div class="flex items-center gap-2" style="margin-bottom: 4px;">
+				<span class="text-sm" style="font-weight: 600;">{ u.Title }</span>
+				if u.IsComplete() {
+					<span class="badge badge--complete">Done</span>
+				}
+			</div>
+			if u.TotalWorkItems > 0 {
+				<div class="flex items-center gap-2">
+					<div class="progress" style="width: 120px;">
+						<div class="progress__bar" style={ fmt.Sprintf("width: %d%%", u.ProgressPercent()) }></div>
+					</div>
+					<span class="text-xs text-muted">
+						{ strconv.Itoa(u.CompletedWorkItems) }/{ strconv.Itoa(u.TotalWorkItems) }
+					</span>
+				</div>
+			}
+		</div>
+		if u.TargetCompletionDate != nil {
+			<span class="text-xs text-muted">Due { *u.TargetCompletionDate }</span>
+		}
+		<div class="flex gap-2">
+			<a
+				href={ templ.SafeURL(fmt.Sprintf("/courses/%d/units/%d/edit", courseID, u.ID)) }
+				class="btn btn--ghost btn--sm"
+			>Edit</a>
+			<button
+				class="btn btn--danger btn--sm btn--ghost"
+				hx-delete={ fmt.Sprintf("/courses/%d/units/%d", courseID, u.ID) }
+				hx-confirm="Delete this unit and all its work items? This cannot be undone."
+				hx-target="body"
+				hx-push-url="true"
+			>Delete</button>
+		</div>
+	</li>
+}

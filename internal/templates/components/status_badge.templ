@@ -1,0 +1,29 @@
+package components
+
+import "theology-tracker/internal/models"
+
+templ CourseStatusBadge(status models.CourseStatus) {
+	switch status {
+	case models.CourseStatusActive:
+		<span class="badge badge--active">Active</span>
+	case models.CourseStatusPaused:
+		<span class="badge badge--paused">Paused</span>
+	case models.CourseStatusComplete:
+		<span class="badge badge--complete">Complete</span>
+	default:
+		<span class="badge badge--neutral">{ string(status) }</span>
+	}
+}
+
+templ WorkItemStatusBadge(status models.WorkItemStatus) {
+	switch status {
+	case models.WorkItemStatusNotStarted:
+		<span class="badge badge--neutral">Not Started</span>
+	case models.WorkItemStatusInProgress:
+		<span class="badge badge--active">In Progress</span>
+	case models.WorkItemStatusComplete:
+		<span class="badge badge--complete">Complete</span>
+	default:
+		<span class="badge badge--neutral">{ string(status) }</span>
+	}
+}

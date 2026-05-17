@@ -1,0 +1,229 @@
+package courses
+
+import (
+	"fmt"
+	"theology-tracker/internal/templates/layout"
+)
+
+// CourseFormData is populated by the handler for both create and edit views.
+type CourseFormData struct {
+	IsNew       bool
+	CourseID    int64
+	Title       string
+	Description string
+	Status      string
+	StartDate   string
+	TargetDate  string
+	Error       string
+}
+
+// UnitFormData is populated by the handler for both create and edit unit views.
+type UnitFormData struct {
+	IsNew      bool
+	CourseID   int64
+	UnitID     int64
+	Title      string
+	Desc       string
+	TargetDate string
+	Error      string
+}
+
+// ── Course form ───────────────────────────────────────────────────────────────
+
+templ Form(data CourseFormData) {
+	@layout.Base(courseFormPageTitle(data)) {
+		<div class="page-header">
+			<div>
+				<div class="flex items-center gap-2" style="margin-bottom: 4px;">
+					<a href="/courses" class="text-muted text-sm">← Courses</a>
+				</div>
+				<h1>{ courseFormPageTitle(data) }</h1>
+			</div>
+		</div>
+		<div class="card" style="max-width: 640px;">
+			if data.Error != "" {
+				<div class="alert alert--error">{ data.Error }</div>
+			}
+			if data.IsNew {
+				<form method="POST" action="/courses">
+					@courseFormFields(data)
+				</form>
+			} else {
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/courses/%d", data.CourseID)) }
+				>
+					<!-- Method override for PUT via plain POST -->
+					<input type="hidden" name="_method" value="PUT"/>
+					@courseFormFields(data)
+				</form>
+			}
+		</div>
+	}
+}
+
+templ courseFormFields(data CourseFormData) {
+	<div class="form-group">
+		<label for="title">Title <span style="color: var(--color-danger);">*</span></label>
+		<input
+			type="text"
+			id="title"
+			name="title"
+			value={ data.Title }
+			placeholder="e.g. Systematic Theology I"
+			required
+			autofocus
+		/>
+	</div>
+	<div class="form-group">
+		<label for="description">Description</label>
+		<textarea
+			id="description"
+			name="description"
+			rows="3"
+			placeholder="Optional notes about this course"
+		>{ data.Description }</textarea>
+	</div>
+	if !data.IsNew {
+		<div class="form-group">
+			<label for="status">Status</label>
+			<select id="status" name="status">
+				<option value="Active" selected?={ data.Status == "Active" }>Active</option>
+				<option value="Paused" selected?={ data.Status == "Paused" }>Paused</option>
+				<option value="Complete" selected?={ data.Status == "Complete" }>Complete</option>
+			</select>
+		</div>
+	}
+	<div class="form-group">
+		<label for="start_date">Start Date</label>
+		<input
+			type="date"
+			id="start_date"
+			name="start_date"
+			value={ data.StartDate }
+		/>
+		<p class="form-hint">Optional</p>
+	</div>
+	<div class="form-group">
+		<label for="target_completion_date">Target Completion Date</label>
+		<input
+			type="date"
+			id="target_completion_date"
+			name="target_completion_date"
+			value={ data.TargetDate }
+		/>
+		<p class="form-hint">Optional</p>
+	</div>
+	<div class="flex gap-2 mt-6">
+		<button type="submit" class="btn btn--primary">
+			if data.IsNew {
+				Create Course
+			} else {
+				Save Changes
+			}
+		</button>
+		<a href="/courses" class="btn btn--secondary">Cancel</a>
+	</div>
+}
+
+// ── Unit form ─────────────────────────────────────────────────────────────────
+
+templ UnitForm(data UnitFormData) {
+	@layout.Base(unitFormPageTitle(data)) {
+		<div class="page-header">
+			<div>
+				<div class="flex items-center gap-2" style="margin-bottom: 4px;">
+					<a
+						href={ templ.SafeURL(fmt.Sprintf("/courses/%d", data.CourseID)) }
+						class="text-muted text-sm"
+					>← Course</a>
+				</div>
+				<h1>{ unitFormPageTitle(data) }</h1>
+			</div>
+		</div>
+		<div class="card" style="max-width: 640px;">
+			if data.Error != "" {
+				<div class="alert alert--error">{ data.Error }</div>
+			}
+			if data.IsNew {
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/courses/%d/units", data.CourseID)) }
+				>
+					@unitFormFields(data)
+				</form>
+			} else {
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/courses/%d/units/%d", data.CourseID, data.UnitID)) }
+				>
+					<input type="hidden" name="_method" value="PUT"/>
+					@unitFormFields(data)
+				</form>
+			}
+		</div>
+	}
+}
+
+templ unitFormFields(data UnitFormData) {
+	<div class="form-group">
+		<label for="title">Title <span style="color: var(--color-danger);">*</span></label>
+		<input
+			type="text"
+			id="title"
+			name="title"
+			value={ data.Title }
+			placeholder="e.g. Introduction to Soteriology"
+			required
+			autofocus
+		/>
+	</div>
+	<div class="form-group">
+		<label for="description">Description</label>
+		<textarea
+			id="description"
+			name="description"
+			rows="3"
+			placeholder="Optional notes about this unit"
+		>{ data.Desc }</textarea>
+	</div>
+	<div class="form-group">
+		<label for="target_completion_date">Target Completion Date</label>
+		<input
+			type="date"
+			id="target_completion_date"
+			name="target_completion_date"
+			value={ data.TargetDate }
+		/>
+		<p class="form-hint">Optional</p>
+	</div>
+	<div class="flex gap-2 mt-6">
+		<button type="submit" class="btn btn--primary">
+			if data.IsNew {
+				Add Unit
+			} else {
+				Save Changes
+			}
+		</button>
+		<a
+			href={ templ.SafeURL(fmt.Sprintf("/courses/%d", data.CourseID)) }
+			class="btn btn--secondary"
+		>Cancel</a>
+	</div>
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+func courseFormPageTitle(data CourseFormData) string {
+	if data.IsNew {
+		return "New Course"
+	}
+	return "Edit Course"
+}
+
+func unitFormPageTitle(data UnitFormData) string {
+	if data.IsNew {
+		return "Add Unit"
+	}
+	return "Edit Unit"
+}

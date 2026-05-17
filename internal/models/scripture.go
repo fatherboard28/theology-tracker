@@ -56,7 +56,7 @@ func ValidateScriptureReference(ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
 	m := refPattern.FindStringSubmatch(ref)
 	if m == nil {
-		return "", fmt.Errorf("invalid format: expected e.g. "Rom 8:28" or "Gen 1:1–3"")
+		return "", fmt.Errorf("invalid format: expected e.g. \"Rom 8:28\" or \"Gen 1:1–3\"")
 	}
 
 	book := m[1]
