@@ -1,0 +1,23 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # templ generate must run before go build so *_templ.go files are fresh.
+  cmd = "templ generate && go build -o ./tmp/theology-tracker ./cmd/server"
+  bin = "./tmp/theology-tracker"
+  delay = 500
+
+  # Watch .templ files as well as .go files.
+  include_ext = ["go", "templ"]
+
+  # Ignore generated files — air would otherwise loop on its own output.
+  exclude_regex = ["_templ\\.go$"]
+  exclude_dir   = ["tmp", "data", "static", "vendor"]
+
+  log = "tmp/build-errors.log"
+
+[screen]
+  clear_on_rebuild = true
+
+[log]
+  time = true

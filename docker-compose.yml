@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      # The SQLite database file lives on the host at ./data/theology.db.
+      # Copying that file is a complete backup of all application data.
+      - ./data:/app/data
+    environment:
+      PORT: "3000"
+      DB_PATH: "/app/data/theology.db"
+    restart: unless-stopped

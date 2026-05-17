@@ -1,0 +1,3 @@
+-- 000_placeholder.sql
+-- This file exists so the migrations embed compiles.
+-- Real schema migrations begin at 001.

@@ -1,0 +1,39 @@
+package layout
+
+templ Base(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title } — Theology Tracker</title>
+			<link rel="stylesheet" href="/static/css/app.css"/>
+		</head>
+		<body hx-boost="true">
+			<nav class="nav">
+				<a href="/" class="nav__brand">Theology Tracker</a>
+				<ul class="nav__links">
+					<li><a href="/">Dashboard</a></li>
+					<li><a href="/courses">Courses</a></li>
+					<li><a href="/topics">Topics</a></li>
+					<li><a href="/notes">Notes</a></li>
+					<li><a href="/methods">Methods</a></li>
+					<li><a href="/calendar">Calendar</a></li>
+					<li><a href="/search">
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+						Search
+					</a></li>
+				</ul>
+			</nav>
+			<main class="main">
+				{ children... }
+			</main>
+			<!-- JS loaded at end of body. HTMX first, then Alpine (defer), then app glue. -->
+			<script src="/static/js/htmx.min.js"></script>
+			<script src="/static/js/alpine.min.js" defer></script>
+			<script src="/static/js/sortable.min.js"></script>
+			<script src="/static/js/marked.min.js"></script>
+			<script src="/static/js/app.js"></script>
+		</body>
+	</html>
+}
