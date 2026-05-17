@@ -1,0 +1,2926 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+cmd/
+  server/
+    main.go
+data/
+  .gitkeep
+internal/
+  config/
+    config.go
+  database/
+    migrations/
+      000_placeholder.sql
+      001_courses.sql
+      002_units.sql
+      003_topics.sql
+      004_methods.sql
+      005_work_items.sql
+      006_work_item_details.sql
+      007_notes.sql
+      008_study_sessions.sql
+      009_scripture_tags.sql
+      010_join_tables.sql
+    database.go
+    migrations.go
+  handlers/
+    course_handler.go
+    handlers.go
+  middleware/
+    middleware.go
+  models/
+    course.go
+    method.go
+    note.go
+    progress.go
+    scripture.go
+    session.go
+    topic.go
+    unit.go
+    workitem.go
+  store/
+    course_store.go
+    store.go
+  templates/
+    components/
+      status_badge.templ
+    layout/
+      base.templ
+    pages/
+      courses/
+        detail.templ
+        forms.templ
+        list.templ
+scripts/
+  init-proj.sh
+  run.sh
+static/
+  css/
+    app.css
+  js/
+    app.js
+.air.toml
+.gitignore
+docker-compose.yml
+Dockerfile
+go.mod
+theology-study-tracker-spec.pdf
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="data/.gitkeep">
+
+</file>
+
+<file path="internal/config/config.go">
+package config
+
+import "os"
+
+type Config struct {
+	Port   string
+	DBPath string
+}
+
+func Load() *Config {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
+
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "./data/theology.db"
+	}
+
+	return &Config{
+		Port:   port,
+		DBPath: dbPath,
+	}
+}
+</file>
+
+<file path="internal/database/migrations/000_placeholder.sql">
+-- 000_placeholder.sql
+-- This file exists so the migrations embed compiles.
+-- Real schema migrations begin at 001.
+</file>
+
+<file path="internal/database/migrations/001_courses.sql">
+CREATE TABLE courses (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    title                  TEXT    NOT NULL,
+    description            TEXT    NOT NULL DEFAULT '',
+    status                 TEXT    NOT NULL DEFAULT 'Active'
+                               CHECK (status IN ('Active', 'Paused', 'Complete')),
+    start_date             TEXT,
+    target_completion_date TEXT,
+    actual_completion_date TEXT,
+    created_at             TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+</file>
+
+<file path="internal/database/migrations/002_units.sql">
+CREATE TABLE units (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id              INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    title                  TEXT    NOT NULL,
+    description            TEXT    NOT NULL DEFAULT '',
+    -- position drives display order within a course; updated by drag-and-drop
+    position               INTEGER NOT NULL DEFAULT 0,
+    target_completion_date TEXT,
+    -- set automatically by the application when all work items in the unit complete
+    actual_completion_date TEXT,
+    created_at             TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_units_course_id ON units(course_id);
+</file>
+
+<file path="internal/database/migrations/003_topics.sql">
+CREATE TABLE topics (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    title           TEXT    NOT NULL,
+    description     TEXT    NOT NULL DEFAULT '',
+    type            TEXT    NOT NULL DEFAULT 'Other'
+                        CHECK (type IN ('Book of Bible', 'Theological Theme', 'Doctrine', 'Other')),
+    -- one level of nesting only; enforced at the application layer
+    parent_topic_id INTEGER REFERENCES topics(id) ON DELETE SET NULL,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_topics_parent ON topics(parent_topic_id);
+</file>
+
+<file path="internal/database/migrations/004_methods.sql">
+CREATE TABLE methods (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    description TEXT    NOT NULL DEFAULT '',
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+</file>
+
+<file path="internal/database/migrations/005_work_items.sql">
+CREATE TABLE work_items (
+    id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+    type                       TEXT    NOT NULL
+                                   CHECK (type IN ('Reading', 'Assignment', 'Paper', 'Practice Session')),
+    title                      TEXT    NOT NULL,
+    status                     TEXT    NOT NULL DEFAULT 'Not Started'
+                                   CHECK (status IN ('Not Started', 'In Progress', 'Complete')),
+    estimated_duration_minutes INTEGER,
+    due_date                   TEXT,
+    -- set automatically by the application when status is changed to Complete
+    completion_date            TEXT,
+    general_notes              TEXT    NOT NULL DEFAULT '',
+    -- nullable: a work item owned by a topic has no unit parent
+    unit_id                    INTEGER REFERENCES units(id) ON DELETE CASCADE,
+    -- nullable: a work item inside a unit may have no owning topic
+    -- RESTRICT prevents deleting a topic that is the sole parent of work items
+    owning_topic_id            INTEGER REFERENCES topics(id) ON DELETE RESTRICT,
+    created_at                 TEXT    NOT NULL DEFAULT (datetime('now')),
+    -- spec rule: every work item must have at least one of unit_id or owning_topic_id
+    CHECK (unit_id IS NOT NULL OR owning_topic_id IS NOT NULL)
+);
+
+CREATE INDEX idx_work_items_unit     ON work_items(unit_id);
+CREATE INDEX idx_work_items_topic    ON work_items(owning_topic_id);
+CREATE INDEX idx_work_items_status   ON work_items(status);
+CREATE INDEX idx_work_items_due_date ON work_items(due_date);
+</file>
+
+<file path="internal/database/migrations/006_work_item_details.sql">
+-- Each table has a 1-to-1 relationship with work_items via the PK.
+-- A row exists here only when work_items.type matches the table's type.
+-- The application enforces consistency at creation time.
+
+CREATE TABLE readings (
+    work_item_id INTEGER PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+    source       TEXT    NOT NULL DEFAULT '',   -- book title, article name, or 'Scripture'
+    author       TEXT    NOT NULL DEFAULT '',
+    location     TEXT    NOT NULL DEFAULT '',   -- page range or scripture reference
+    format       TEXT    NOT NULL DEFAULT 'Physical Book'
+                     CHECK (format IN ('Physical Book', 'PDF', 'Online Article', 'Scripture'))
+);
+
+CREATE TABLE assignments (
+    work_item_id INTEGER PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+    description  TEXT    NOT NULL DEFAULT ''
+);
+
+CREATE TABLE papers (
+    work_item_id      INTEGER PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+    prompt_or_topic   TEXT    NOT NULL DEFAULT '',
+    word_count_target INTEGER,
+    score_or_grade    TEXT    NOT NULL DEFAULT ''   -- freeform: letter, %, or narrative
+);
+
+CREATE TABLE practice_sessions (
+    work_item_id      INTEGER PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+    method_id         INTEGER REFERENCES methods(id) ON DELETE SET NULL,
+    scripture_passage TEXT    NOT NULL DEFAULT '',
+    duration_minutes  INTEGER
+);
+</file>
+
+<file path="internal/database/migrations/007_notes.sql">
+CREATE TABLE notes (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    title               TEXT    NOT NULL,
+    body                TEXT    NOT NULL DEFAULT '',  -- markdown source
+    -- Polymorphic parent: exactly one of Course / Unit / Topic / Method / Session.
+    -- SQLite cannot enforce a cross-table FK on a polymorphic column, so
+    -- referential integrity is handled at the application layer.
+    primary_parent_type TEXT    NOT NULL
+                            CHECK (primary_parent_type IN ('Course', 'Unit', 'Topic', 'Method', 'Session')),
+    primary_parent_id   INTEGER NOT NULL,
+    created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Auto-update updated_at whenever a note's body or title changes.
+CREATE TRIGGER notes_updated_at
+AFTER UPDATE ON notes
+FOR EACH ROW
+BEGIN
+    UPDATE notes SET updated_at = datetime('now') WHERE id = OLD.id;
+END;
+
+CREATE INDEX idx_notes_parent ON notes(primary_parent_type, primary_parent_id);
+CREATE INDEX idx_notes_updated ON notes(updated_at);
+</file>
+
+<file path="internal/database/migrations/008_study_sessions.sql">
+CREATE TABLE study_sessions (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    date             TEXT    NOT NULL,              -- ISO 8601: YYYY-MM-DD
+    duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0),
+    -- Both associations are optional: a session can be logged free-form
+    -- with no work item and no method.
+    work_item_id     INTEGER REFERENCES work_items(id) ON DELETE SET NULL,
+    method_id        INTEGER REFERENCES methods(id)    ON DELETE SET NULL,
+    reflection       TEXT    NOT NULL DEFAULT '',
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_sessions_date        ON study_sessions(date);
+CREATE INDEX idx_sessions_work_item   ON study_sessions(work_item_id);
+CREATE INDEX idx_sessions_method      ON study_sessions(method_id);
+</file>
+
+<file path="internal/database/migrations/009_scripture_tags.sql">
+CREATE TABLE scripture_tags (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Validated by the application against the known book abbreviation list.
+    -- Format: "[3-char book] [chapter]:[verse]" e.g. "Rom 8:28", "Gen 1:1-5"
+    reference   TEXT    NOT NULL,
+    -- Polymorphic: the entity this tag is attached to.
+    -- Allowed types: WorkItem, Topic, Session
+    entity_type TEXT    NOT NULL
+                    CHECK (entity_type IN ('WorkItem', 'Topic', 'Session')),
+    entity_id   INTEGER NOT NULL
+);
+
+CREATE INDEX idx_scripture_entity ON scripture_tags(entity_type, entity_id);
+-- Supports the reference view: "show all items tagged with Rom 8"
+CREATE INDEX idx_scripture_ref    ON scripture_tags(reference);
+</file>
+
+<file path="internal/database/migrations/010_join_tables.sql">
+-- ── Topic tagging join tables ─────────────────────────────────────────────────
+-- Any entity can be tagged with any number of topics.
+-- The composite PK prevents duplicate tags and doubles as an index.
+
+CREATE TABLE course_topics (
+    course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    topic_id  INTEGER NOT NULL REFERENCES topics(id)  ON DELETE CASCADE,
+    PRIMARY KEY (course_id, topic_id)
+);
+CREATE INDEX idx_course_topics_topic ON course_topics(topic_id);
+
+CREATE TABLE unit_topics (
+    unit_id  INTEGER NOT NULL REFERENCES units(id)  ON DELETE CASCADE,
+    topic_id INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+    PRIMARY KEY (unit_id, topic_id)
+);
+CREATE INDEX idx_unit_topics_topic ON unit_topics(topic_id);
+
+CREATE TABLE work_item_topics (
+    work_item_id INTEGER NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+    topic_id     INTEGER NOT NULL REFERENCES topics(id)     ON DELETE CASCADE,
+    PRIMARY KEY (work_item_id, topic_id)
+);
+CREATE INDEX idx_work_item_topics_topic ON work_item_topics(topic_id);
+
+CREATE TABLE note_topics (
+    note_id  INTEGER NOT NULL REFERENCES notes(id)  ON DELETE CASCADE,
+    topic_id INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+    PRIMARY KEY (note_id, topic_id)
+);
+CREATE INDEX idx_note_topics_topic ON note_topics(topic_id);
+
+CREATE TABLE session_topics (
+    session_id INTEGER NOT NULL REFERENCES study_sessions(id) ON DELETE CASCADE,
+    topic_id   INTEGER NOT NULL REFERENCES topics(id)         ON DELETE CASCADE,
+    PRIMARY KEY (session_id, topic_id)
+);
+CREATE INDEX idx_session_topics_topic ON session_topics(topic_id);
+
+-- ── Note ↔ Work Item references (many-to-many) ────────────────────────────────
+-- Assignment, Paper, and Practice Session work items can reference any number
+-- of notes. A note can be referenced by any number of work items.
+-- This is distinct from topic tagging — it's a "this note is source material
+-- or output for this work item" relationship.
+
+CREATE TABLE note_work_items (
+    note_id      INTEGER NOT NULL REFERENCES notes(id)      ON DELETE CASCADE,
+    work_item_id INTEGER NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+    PRIMARY KEY (note_id, work_item_id)
+);
+CREATE INDEX idx_note_work_items_work_item ON note_work_items(work_item_id);
+</file>
+
+<file path="internal/database/database.go">
+package database
+
+import (
+	"fmt"
+
+	"github.com/jmoiron/sqlx"
+	_ "modernc.org/sqlite"
+)
+
+func Open(path string) (*sqlx.DB, error) {
+	db, err := sqlx.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("opening database: %w", err)
+	}
+
+	// SQLite performs best with a single writer connection.
+	// Concurrent reads still work via WAL mode below.
+	db.SetMaxOpenConns(1)
+
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return nil, fmt.Errorf("enabling WAL mode: %w", err)
+	}
+
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		return nil, fmt.Errorf("enabling foreign keys: %w", err)
+	}
+
+	// Reduce the chance of SQLITE_BUSY under light concurrent load.
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		return nil, fmt.Errorf("setting busy timeout: %w", err)
+	}
+
+	return db, nil
+}
+</file>
+
+<file path="internal/database/migrations.go">
+package database
+
+import (
+	"embed"
+	"fmt"
+	"io/fs"
+	"log"
+	"sort"
+	"strings"
+
+	"github.com/jmoiron/sqlx"
+)
+
+//go:embed migrations
+var migrationsFS embed.FS
+
+func RunMigrations(db *sqlx.DB) error {
+	// The migrations table itself is created outside the migration system
+	// so the system can always bootstrap regardless of state.
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version    TEXT PRIMARY KEY,
+			applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("creating schema_migrations table: %w", err)
+	}
+
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	if err != nil {
+		return fmt.Errorf("reading migrations directory: %w", err)
+	}
+
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
+			files = append(files, e.Name())
+		}
+	}
+	sort.Strings(files)
+
+	for _, file := range files {
+		version := strings.TrimSuffix(file, ".sql")
+
+		var count int
+		if err := db.QueryRow(
+			"SELECT COUNT(*) FROM schema_migrations WHERE version = ?", version,
+		).Scan(&count); err != nil {
+			return fmt.Errorf("checking migration %s: %w", version, err)
+		}
+		if count > 0 {
+			continue
+		}
+
+		content, err := migrationsFS.ReadFile("migrations/" + file)
+		if err != nil {
+			return fmt.Errorf("reading migration %s: %w", file, err)
+		}
+
+		if _, err := db.Exec(string(content)); err != nil {
+			return fmt.Errorf("applying migration %s: %w", file, err)
+		}
+
+		if _, err := db.Exec(
+			"INSERT INTO schema_migrations (version) VALUES (?)", version,
+		); err != nil {
+			return fmt.Errorf("recording migration %s: %w", file, err)
+		}
+
+		log.Printf("migration applied: %s", version)
+	}
+
+	return nil
+}
+</file>
+
+<file path="internal/handlers/course_handler.go">
+package handlers
+
+import (
+	"fmt"
+	"net/http"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
+
+	"theology-tracker/internal/models"
+	"theology-tracker/internal/store"
+	coursepages "theology-tracker/internal/templates/pages/courses"
+)
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+func courseIDParam(r *http.Request) (int64, error) {
+	return strconv.ParseInt(chi.URLParam(r, "courseID"), 10, 64)
+}
+
+func unitIDParam(r *http.Request) (int64, error) {
+	return strconv.ParseInt(chi.URLParam(r, "unitID"), 10, 64)
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// ── Course handlers ───────────────────────────────────────────────────────────
+
+func (h *Handler) ListCourses(w http.ResponseWriter, r *http.Request) {
+	courses, err := h.store.ListCourses()
+	if err != nil {
+		http.Error(w, "could not load courses", http.StatusInternalServerError)
+		return
+	}
+	coursepages.List(courses).Render(r.Context(), w)
+}
+
+func (h *Handler) NewCourseForm(w http.ResponseWriter, r *http.Request) {
+	coursepages.Form(coursepages.CourseFormData{IsNew: true}).Render(r.Context(), w)
+}
+
+func (h *Handler) CreateCourse(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	data := coursepages.CourseFormData{
+		IsNew:       true,
+		Title:       r.FormValue("title"),
+		Description: r.FormValue("description"),
+		Status:      r.FormValue("status"),
+		StartDate:   r.FormValue("start_date"),
+		TargetDate:  r.FormValue("target_completion_date"),
+	}
+
+	if data.Title == "" {
+		data.Error = "Title is required."
+		coursepages.Form(data).Render(r.Context(), w)
+		return
+	}
+
+	status := models.CourseStatus(data.Status)
+	if status == "" {
+		status = models.CourseStatusActive
+	}
+
+	id, err := h.store.CreateCourse(store.CreateCourseParams{
+		Title:                data.Title,
+		Description:          data.Description,
+		Status:               status,
+		StartDate:            nilIfEmpty(data.StartDate),
+		TargetCompletionDate: nilIfEmpty(data.TargetDate),
+	})
+	if err != nil {
+		data.Error = "Could not create course. Please try again."
+		coursepages.Form(data).Render(r.Context(), w)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/courses/%d", id), http.StatusSeeOther)
+}
+
+func (h *Handler) GetCourse(w http.ResponseWriter, r *http.Request) {
+	courseID, err := courseIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	course, err := h.store.GetCourse(courseID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	units, err := h.store.ListUnitsForCourse(courseID)
+	if err != nil {
+		http.Error(w, "could not load units", http.StatusInternalServerError)
+		return
+	}
+
+	coursepages.Detail(course, units).Render(r.Context(), w)
+}
+
+func (h *Handler) EditCourseForm(w http.ResponseWriter, r *http.Request) {
+	courseID, err := courseIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	course, err := h.store.GetCourse(courseID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	coursepages.Form(coursepages.CourseFormData{
+		IsNew:       false,
+		CourseID:    course.ID,
+		Title:       course.Title,
+		Description: course.Description,
+		Status:      string(course.Status),
+		StartDate:   derefStr(course.StartDate),
+		TargetDate:  derefStr(course.TargetCompletionDate),
+	}).Render(r.Context(), w)
+}
+
+func (h *Handler) UpdateCourse(w http.ResponseWriter, r *http.Request) {
+	courseID, err := courseIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	data := coursepages.CourseFormData{
+		IsNew:       false,
+		CourseID:    courseID,
+		Title:       r.FormValue("title"),
+		Description: r.FormValue("description"),
+		Status:      r.FormValue("status"),
+		StartDate:   r.FormValue("start_date"),
+		TargetDate:  r.FormValue("target_completion_date"),
+	}
+
+	if data.Title == "" {
+		data.Error = "Title is required."
+		coursepages.Form(data).Render(r.Context(), w)
+		return
+	}
+
+	if err := h.store.UpdateCourse(store.UpdateCourseParams{
+		ID:                   courseID,
+		Title:                data.Title,
+		Description:          data.Description,
+		Status:               models.CourseStatus(data.Status),
+		StartDate:            nilIfEmpty(data.StartDate),
+		TargetCompletionDate: nilIfEmpty(data.TargetDate),
+	}); err != nil {
+		data.Error = "Could not update course. Please try again."
+		coursepages.Form(data).Render(r.Context(), w)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/courses/%d", courseID), http.StatusSeeOther)
+}
+
+func (h *Handler) DeleteCourse(w http.ResponseWriter, r *http.Request) {
+	courseID, err := courseIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := h.store.DeleteCourse(courseID); err != nil {
+		http.Error(w, "could not delete course", http.StatusInternalServerError)
+		return
+	}
+
+	// HTMX delete from the list page: trigger a redirect to /courses.
+	w.Header().Set("HX-Redirect", "/courses")
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) UpdateCourseStatus(w http.ResponseWriter, r *http.Request) {
+	courseID, err := courseIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	status := models.CourseStatus(r.FormValue("status"))
+	if err := h.store.SetCourseStatus(courseID, status); err != nil {
+		http.Error(w, "could not update status", http.StatusInternalServerError)
+		return
+	}
+
+	// Reload the full detail page so all derived fields (completion date, etc.) refresh.
+	http.Redirect(w, r, fmt.Sprintf("/courses/%d", courseID), http.StatusSeeOther)
+}
+
+// ── Unit handlers ─────────────────────────────────────────────────────────────
+
+func (h *Handler) NewUnitForm(w http.ResponseWriter, r *http.Request) {
+	courseID, err := courseIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	coursepages.UnitForm(coursepages.UnitFormData{
+		IsNew:    true,
+		CourseID: courseID,
+	}).Render(r.Context(), w)
+}
+
+func (h *Handler) CreateUnit(w http.ResponseWriter, r *http.Request) {
+	courseID, err := courseIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	data := coursepages.UnitFormData{
+		IsNew:      true,
+		CourseID:   courseID,
+		Title:      r.FormValue("title"),
+		Desc:       r.FormValue("description"),
+		TargetDate: r.FormValue("target_completion_date"),
+	}
+
+	if data.Title == "" {
+		data.Error = "Title is required."
+		coursepages.UnitForm(data).Render(r.Context(), w)
+		return
+	}
+
+	if _, err := h.store.CreateUnit(store.CreateUnitParams{
+		CourseID:             courseID,
+		Title:                data.Title,
+		Description:          data.Desc,
+		TargetCompletionDate: nilIfEmpty(data.TargetDate),
+	}); err != nil {
+		data.Error = "Could not create unit. Please try again."
+		coursepages.UnitForm(data).Render(r.Context(), w)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/courses/%d", courseID), http.StatusSeeOther)
+}
+
+func (h *Handler) EditUnitForm(w http.ResponseWriter, r *http.Request) {
+	courseID, err := courseIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	unitID, err := unitIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	unit, err := h.store.GetUnit(unitID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	coursepages.UnitForm(coursepages.UnitFormData{
+		IsNew:      false,
+		CourseID:   courseID,
+		UnitID:     unit.ID,
+		Title:      unit.Title,
+		Desc:       unit.Description,
+		TargetDate: derefStr(unit.TargetCompletionDate),
+	}).Render(r.Context(), w)
+}
+
+func (h *Handler) UpdateUnit(w http.ResponseWriter, r *http.Request) {
+	courseID, err := courseIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	unitID, err := unitIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	data := coursepages.UnitFormData{
+		IsNew:      false,
+		CourseID:   courseID,
+		UnitID:     unitID,
+		Title:      r.FormValue("title"),
+		Desc:       r.FormValue("description"),
+		TargetDate: r.FormValue("target_completion_date"),
+	}
+
+	if data.Title == "" {
+		data.Error = "Title is required."
+		coursepages.UnitForm(data).Render(r.Context(), w)
+		return
+	}
+
+	if err := h.store.UpdateUnit(store.UpdateUnitParams{
+		ID:                   unitID,
+		Title:                data.Title,
+		Description:          data.Desc,
+		TargetCompletionDate: nilIfEmpty(data.TargetDate),
+	}); err != nil {
+		data.Error = "Could not update unit. Please try again."
+		coursepages.UnitForm(data).Render(r.Context(), w)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/courses/%d", courseID), http.StatusSeeOther)
+}
+
+func (h *Handler) DeleteUnit(w http.ResponseWriter, r *http.Request) {
+	courseID, err := courseIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	unitID, err := unitIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := h.store.DeleteUnit(unitID); err != nil {
+		http.Error(w, "could not delete unit", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("HX-Redirect", fmt.Sprintf("/courses/%d", courseID))
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) ReorderUnits(w http.ResponseWriter, r *http.Request) {
+	courseID, err := courseIDParam(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	rawIDs := r.Form["ids"]
+	orderedIDs := make([]int64, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
+		}
+		orderedIDs = append(orderedIDs, id)
+	}
+
+	if err := h.store.ReorderUnits(courseID, orderedIDs); err != nil {
+		http.Error(w, "could not reorder units", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// nilIfEmpty wraps the store helper so handlers can call it directly.
+func nilIfEmpty(s string) *string {
+	return store.NilIfEmpty(s)
+}
+</file>
+
+<file path="internal/handlers/handlers.go">
+package handlers
+
+import (
+	"net/http"
+
+	"theology-tracker/internal/store"
+	"theology-tracker/internal/templates/layout"
+)
+
+// Handler holds shared dependencies for all HTTP handlers.
+// Each domain gets its own *_handler.go file with methods on this struct.
+type Handler struct {
+	store *store.Store
+}
+
+func New(s *store.Store) *Handler {
+	return &Handler{store: s}
+}
+
+// isHTMX returns true when the request was initiated by HTMX.
+// Handlers use this to decide whether to render a full page or a fragment.
+func isHTMX(r *http.Request) bool {
+	return r.Header.Get("HX-Request") == "true"
+}
+
+func (h *Handler) Dashboard(w http.ResponseWriter, r *http.Request) {
+	component := layout.Base("Dashboard")
+	component.Render(r.Context(), w)
+}
+</file>
+
+<file path="internal/models/course.go">
+package models
+
+type CourseStatus string
+
+const (
+	CourseStatusActive   CourseStatus = "Active"
+	CourseStatusPaused   CourseStatus = "Paused"
+	CourseStatusComplete CourseStatus = "Complete"
+)
+
+type Course struct {
+	ID                   int64        `db:"id"`
+	Title                string       `db:"title"`
+	Description          string       `db:"description"`
+	Status               CourseStatus `db:"status"`
+	StartDate            *string      `db:"start_date"`             // YYYY-MM-DD or nil
+	TargetCompletionDate *string      `db:"target_completion_date"` // YYYY-MM-DD or nil
+	ActualCompletionDate *string      `db:"actual_completion_date"` // set on completion
+	CreatedAt            string       `db:"created_at"`
+}
+
+// IsComplete returns true when the course has been marked complete.
+func (c *Course) IsComplete() bool {
+	return c.Status == CourseStatusComplete
+}
+</file>
+
+<file path="internal/models/method.go">
+package models
+
+type Method struct {
+	ID          int64  `db:"id"`
+	Name        string `db:"name"`
+	Description string `db:"description"`
+	CreatedAt   string `db:"created_at"`
+}
+
+// MethodWithUsage extends Method with a derived usage count,
+// populated by a JOIN query in the store rather than stored in the DB.
+type MethodWithUsage struct {
+	Method
+	UsageCount int `db:"usage_count"`
+}
+</file>
+
+<file path="internal/models/note.go">
+package models
+
+type NoteParentType string
+
+const (
+	NoteParentCourse  NoteParentType = "Course"
+	NoteParentUnit    NoteParentType = "Unit"
+	NoteParentTopic   NoteParentType = "Topic"
+	NoteParentMethod  NoteParentType = "Method"
+	NoteParentSession NoteParentType = "Session"
+)
+
+type Note struct {
+	ID               int64          `db:"id"`
+	Title            string         `db:"title"`
+	Body             string         `db:"body"` // markdown source
+	PrimaryParentType NoteParentType `db:"primary_parent_type"`
+	PrimaryParentID  int64          `db:"primary_parent_id"`
+	CreatedAt        string         `db:"created_at"`
+	UpdatedAt        string         `db:"updated_at"`
+}
+
+// NoteSummary is used in listing views — avoids loading the full markdown body.
+type NoteSummary struct {
+	ID                int64          `db:"id"`
+	Title             string         `db:"title"`
+	PrimaryParentType NoteParentType `db:"primary_parent_type"`
+	PrimaryParentID   int64          `db:"primary_parent_id"`
+	UpdatedAt         string         `db:"updated_at"`
+	// Populated by JOIN queries, not DB columns:
+	TopicTags   []TopicSummary
+	BodyPreview string // first ~120 chars of body, stripped of markdown
+}
+</file>
+
+<file path="internal/models/progress.go">
+package models
+
+// CourseWithProgress extends Course with work item completion counts
+// derived from a JOIN query. Used in list and detail views.
+type CourseWithProgress struct {
+	Course
+	TotalWorkItems     int `db:"total_work_items"`
+	CompletedWorkItems int `db:"completed_work_items"`
+}
+
+func (c *CourseWithProgress) ProgressPercent() int {
+	if c.TotalWorkItems == 0 {
+		return 0
+	}
+	return (c.CompletedWorkItems * 100) / c.TotalWorkItems
+}
+
+// UnitWithProgress extends Unit with work item completion counts.
+type UnitWithProgress struct {
+	Unit
+	TotalWorkItems     int `db:"total_work_items"`
+	CompletedWorkItems int `db:"completed_work_items"`
+}
+
+func (u *UnitWithProgress) ProgressPercent() int {
+	if u.TotalWorkItems == 0 {
+		return 0
+	}
+	return (u.CompletedWorkItems * 100) / u.TotalWorkItems
+}
+</file>
+
+<file path="internal/models/session.go">
+package models
+
+type StudySession struct {
+	ID              int64  `db:"id"`
+	Date            string `db:"date"`             // YYYY-MM-DD
+	DurationMinutes int    `db:"duration_minutes"`
+	WorkItemID      *int64 `db:"work_item_id"` // nil for free-form sessions
+	MethodID        *int64 `db:"method_id"`    // nil if no method used
+	Reflection      string `db:"reflection"`
+	CreatedAt       string `db:"created_at"`
+}
+
+// StudySessionWithContext enriches a session with joined display fields
+// used in listings and the calendar view.
+type StudySessionWithContext struct {
+	StudySession
+	WorkItemTitle *string `db:"work_item_title"` // nil if no work item
+	MethodName    *string `db:"method_name"`     // nil if no method
+	TopicTags     []TopicSummary
+	ScriptureTags []ScriptureTag
+}
+
+// StreakResult holds the current and all-time streak counts,
+// computed by the store from session dates.
+type StreakResult struct {
+	Current int
+	AllTime int
+}
+</file>
+
+<file path="internal/models/topic.go">
+package models
+
+type TopicType string
+
+const (
+	TopicTypeBookOfBible      TopicType = "Book of Bible"
+	TopicTypeTheologicalTheme TopicType = "Theological Theme"
+	TopicTypeDoctrine         TopicType = "Doctrine"
+	TopicTypeOther            TopicType = "Other"
+)
+
+type Topic struct {
+	ID            int64     `db:"id"`
+	Title         string    `db:"title"`
+	Description   string    `db:"description"`
+	Type          TopicType `db:"type"`
+	ParentTopicID *int64    `db:"parent_topic_id"` // nil if no parent
+	CreatedAt     string    `db:"created_at"`
+}
+
+// TopicSummary is a lightweight view used in tag inputs and listings
+// where the full topic struct isn't needed.
+type TopicSummary struct {
+	ID    int64  `db:"id"`
+	Title string `db:"title"`
+	Type  string `db:"type"`
+}
+</file>
+
+<file path="internal/models/unit.go">
+package models
+
+type Unit struct {
+	ID                   int64   `db:"id"`
+	CourseID             int64   `db:"course_id"`
+	Title                string  `db:"title"`
+	Description          string  `db:"description"`
+	Position             int     `db:"position"`               // display order within the course
+	TargetCompletionDate *string `db:"target_completion_date"` // YYYY-MM-DD or nil
+	ActualCompletionDate *string `db:"actual_completion_date"` // set when all work items complete
+	CreatedAt            string  `db:"created_at"`
+}
+
+// IsComplete returns true when all work items in the unit have been completed.
+// The actual_completion_date is set by the application at that moment.
+func (u *Unit) IsComplete() bool {
+	return u.ActualCompletionDate != nil
+}
+</file>
+
+<file path="internal/models/workitem.go">
+package models
+
+type WorkItemType string
+
+const (
+	WorkItemTypeReading         WorkItemType = "Reading"
+	WorkItemTypeAssignment      WorkItemType = "Assignment"
+	WorkItemTypePaper           WorkItemType = "Paper"
+	WorkItemTypePracticeSession WorkItemType = "Practice Session"
+)
+
+type WorkItemStatus string
+
+const (
+	WorkItemStatusNotStarted WorkItemStatus = "Not Started"
+	WorkItemStatusInProgress WorkItemStatus = "In Progress"
+	WorkItemStatusComplete   WorkItemStatus = "Complete"
+)
+
+type ReadingFormat string
+
+const (
+	ReadingFormatPhysicalBook  ReadingFormat = "Physical Book"
+	ReadingFormatPDF           ReadingFormat = "PDF"
+	ReadingFormatOnlineArticle ReadingFormat = "Online Article"
+	ReadingFormatScripture     ReadingFormat = "Scripture"
+)
+
+// WorkItem holds the fields common to all work item types.
+type WorkItem struct {
+	ID                       int64          `db:"id"`
+	Type                     WorkItemType   `db:"type"`
+	Title                    string         `db:"title"`
+	Status                   WorkItemStatus `db:"status"`
+	EstimatedDurationMinutes *int           `db:"estimated_duration_minutes"`
+	DueDate                  *string        `db:"due_date"`        // YYYY-MM-DD or nil
+	CompletionDate           *string        `db:"completion_date"` // set automatically
+	GeneralNotes             string         `db:"general_notes"`
+	UnitID                   *int64         `db:"unit_id"`        // nil if topic-owned
+	OwningTopicID            *int64         `db:"owning_topic_id"` // nil if unit-owned
+	CreatedAt                string         `db:"created_at"`
+}
+
+func (w *WorkItem) IsComplete() bool {
+	return w.Status == WorkItemStatusComplete
+}
+
+// Reading holds the type-specific fields for WorkItemTypeReading.
+type Reading struct {
+	WorkItemID int64         `db:"work_item_id"`
+	Source     string        `db:"source"` // book title, article name, or "Scripture"
+	Author     string        `db:"author"`
+	Location   string        `db:"location"` // page range or scripture reference
+	Format     ReadingFormat `db:"format"`
+}
+
+// Assignment holds the type-specific fields for WorkItemTypeAssignment.
+type Assignment struct {
+	WorkItemID  int64  `db:"work_item_id"`
+	Description string `db:"description"`
+}
+
+// Paper holds the type-specific fields for WorkItemTypePaper.
+type Paper struct {
+	WorkItemID     int64  `db:"work_item_id"`
+	PromptOrTopic  string `db:"prompt_or_topic"`
+	WordCountTarget *int  `db:"word_count_target"`
+	ScoreOrGrade   string `db:"score_or_grade"` // freeform: letter, %, or narrative
+}
+
+// PracticeSession holds the type-specific fields for WorkItemTypePracticeSession.
+type PracticeSession struct {
+	WorkItemID       int64  `db:"work_item_id"`
+	MethodID         *int64 `db:"method_id"` // nil if no method used
+	ScripturePassage string `db:"scripture_passage"`
+	DurationMinutes  *int   `db:"duration_minutes"`
+}
+
+// WorkItemWithDetails bundles a WorkItem with its type-specific detail
+// and derived fields used in list views. The Detail field holds one of
+// *Reading, *Assignment, *Paper, or *PracticeSession depending on Type.
+type WorkItemWithDetails struct {
+	WorkItem
+	Detail          any    // type-specific struct
+	TotalTimeLogged int    // derived from associated study sessions (minutes)
+	TopicTags       []TopicSummary
+	ScriptureTags   []ScriptureTag
+}
+</file>
+
+<file path="internal/store/course_store.go">
+package store
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"theology-tracker/internal/models"
+)
+
+// ── Param structs ─────────────────────────────────────────────────────────────
+
+type CreateCourseParams struct {
+	Title                string
+	Description          string
+	Status               models.CourseStatus
+	StartDate            *string
+	TargetCompletionDate *string
+}
+
+type UpdateCourseParams struct {
+	ID                   int64
+	Title                string
+	Description          string
+	Status               models.CourseStatus
+	StartDate            *string
+	TargetCompletionDate *string
+}
+
+type CreateUnitParams struct {
+	CourseID             int64
+	Title                string
+	Description          string
+	TargetCompletionDate *string
+}
+
+type UpdateUnitParams struct {
+	ID                   int64
+	Title                string
+	Description          string
+	TargetCompletionDate *string
+}
+
+// ── Courses ───────────────────────────────────────────────────────────────────
+
+func (s *Store) ListCourses() ([]models.CourseWithProgress, error) {
+	type row struct {
+		models.Course
+		TotalWorkItems     int `db:"total_work_items"`
+		CompletedWorkItems int `db:"completed_work_items"`
+	}
+
+	const q = `
+		SELECT
+			c.*,
+			COUNT(wi.id)                                                   AS total_work_items,
+			COALESCE(SUM(CASE WHEN wi.status = 'Complete' THEN 1 ELSE 0 END), 0) AS completed_work_items
+		FROM courses c
+		LEFT JOIN units u      ON u.course_id = c.id
+		LEFT JOIN work_items wi ON wi.unit_id  = u.id
+		GROUP BY c.id
+		ORDER BY c.created_at DESC`
+
+	var rows []row
+	if err := s.db.Select(&rows, q); err != nil {
+		return nil, fmt.Errorf("listing courses: %w", err)
+	}
+
+	out := make([]models.CourseWithProgress, len(rows))
+	for i, r := range rows {
+		out[i] = models.CourseWithProgress{
+			Course:             r.Course,
+			TotalWorkItems:     r.TotalWorkItems,
+			CompletedWorkItems: r.CompletedWorkItems,
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) GetCourse(id int64) (*models.CourseWithProgress, error) {
+	var c models.CourseWithProgress
+	if err := s.db.Get(&c, `
+		SELECT
+			c.*,
+			COALESCE(COUNT(wi.id), 0)                                              AS total_work_items,
+			COALESCE(SUM(CASE WHEN wi.status = 'Complete' THEN 1 ELSE 0 END), 0)   AS completed_work_items
+		FROM courses c
+		LEFT JOIN units      u  ON u.course_id = c.id
+		LEFT JOIN work_items wi ON wi.unit_id  = u.id
+		WHERE c.id = ?
+		GROUP BY c.id
+	`, id); err != nil {
+		return nil, fmt.Errorf("getting course %d: %w", id, err)
+	}
+	return &c, nil
+}
+
+func (s *Store) CreateCourse(p CreateCourseParams) (int64, error) {
+	res, err := s.db.Exec(`
+		INSERT INTO courses (title, description, status, start_date, target_completion_date)
+		VALUES (?, ?, ?, ?, ?)`,
+		p.Title, p.Description, p.Status, p.StartDate, p.TargetCompletionDate,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("creating course: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) UpdateCourse(p UpdateCourseParams) error {
+	_, err := s.db.Exec(`
+		UPDATE courses
+		SET title = ?, description = ?, status = ?, start_date = ?, target_completion_date = ?
+		WHERE id = ?`,
+		p.Title, p.Description, p.Status, p.StartDate, p.TargetCompletionDate, p.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("updating course %d: %w", p.ID, err)
+	}
+	return nil
+}
+
+func (s *Store) DeleteCourse(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM courses WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("deleting course %d: %w", id, err)
+	}
+	return nil
+}
+
+// SetCourseStatus updates the status and manages actual_completion_date:
+// setting Complete records today's date; any other status clears it.
+func (s *Store) SetCourseStatus(id int64, status models.CourseStatus) error {
+	var completionDate *string
+	if status == models.CourseStatusComplete {
+		d := time.Now().Format("2006-01-02")
+		completionDate = &d
+	}
+	_, err := s.db.Exec(
+		`UPDATE courses SET status = ?, actual_completion_date = ? WHERE id = ?`,
+		status, completionDate, id,
+	)
+	if err != nil {
+		return fmt.Errorf("setting course status: %w", err)
+	}
+	return nil
+}
+
+// ── Units ─────────────────────────────────────────────────────────────────────
+
+func (s *Store) ListUnitsForCourse(courseID int64) ([]models.UnitWithProgress, error) {
+	type row struct {
+		models.Unit
+		TotalWorkItems     int `db:"total_work_items"`
+		CompletedWorkItems int `db:"completed_work_items"`
+	}
+
+	const q = `
+		SELECT
+			u.*,
+			COUNT(wi.id)                                                    AS total_work_items,
+			COALESCE(SUM(CASE WHEN wi.status = 'Complete' THEN 1 ELSE 0 END), 0) AS completed_work_items
+		FROM units u
+		LEFT JOIN work_items wi ON wi.unit_id = u.id
+		WHERE u.course_id = ?
+		GROUP BY u.id
+		ORDER BY u.position ASC, u.created_at ASC`
+
+	var rows []row
+	if err := s.db.Select(&rows, q, courseID); err != nil {
+		return nil, fmt.Errorf("listing units for course %d: %w", courseID, err)
+	}
+
+	out := make([]models.UnitWithProgress, len(rows))
+	for i, r := range rows {
+		out[i] = models.UnitWithProgress{
+			Unit:               r.Unit,
+			TotalWorkItems:     r.TotalWorkItems,
+			CompletedWorkItems: r.CompletedWorkItems,
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) GetUnit(id int64) (*models.Unit, error) {
+	var u models.Unit
+	if err := s.db.Get(&u, `SELECT * FROM units WHERE id = ?`, id); err != nil {
+		return nil, fmt.Errorf("getting unit %d: %w", id, err)
+	}
+	return &u, nil
+}
+
+func (s *Store) CreateUnit(p CreateUnitParams) (int64, error) {
+	// Place the new unit at the end of the course's unit list.
+	var maxPos int
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(MAX(position), -1) FROM units WHERE course_id = ?`, p.CourseID,
+	).Scan(&maxPos)
+
+	res, err := s.db.Exec(`
+		INSERT INTO units (course_id, title, description, position, target_completion_date)
+		VALUES (?, ?, ?, ?, ?)`,
+		p.CourseID, p.Title, p.Description, maxPos+1, p.TargetCompletionDate,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("creating unit: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) UpdateUnit(p UpdateUnitParams) error {
+	_, err := s.db.Exec(`
+		UPDATE units
+		SET title = ?, description = ?, target_completion_date = ?
+		WHERE id = ?`,
+		p.Title, p.Description, p.TargetCompletionDate, p.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("updating unit %d: %w", p.ID, err)
+	}
+	return nil
+}
+
+func (s *Store) DeleteUnit(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM units WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("deleting unit %d: %w", id, err)
+	}
+	return nil
+}
+
+// ReorderUnits sets each unit's position to its index in orderedIDs.
+// It validates that all IDs belong to courseID before committing.
+func (s *Store) ReorderUnits(courseID int64, orderedIDs []int64) error {
+	if len(orderedIDs) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	for pos, id := range orderedIDs {
+		res, err := tx.Exec(
+			`UPDATE units SET position = ? WHERE id = ? AND course_id = ?`,
+			pos, id, courseID,
+		)
+		if err != nil {
+			return fmt.Errorf("reordering unit %d: %w", id, err)
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			return fmt.Errorf("unit %d does not belong to course %d", id, courseID)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// CheckAndCompleteUnit evaluates whether all work items in a unit are done.
+// If so, it stamps actual_completion_date; if not, it clears it.
+// Call this whenever a work item's status changes.
+func (s *Store) CheckAndCompleteUnit(unitID int64) error {
+	var total, completed int
+	err := s.db.QueryRow(`
+		SELECT
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN status = 'Complete' THEN 1 ELSE 0 END), 0)
+		FROM work_items
+		WHERE unit_id = ?`, unitID,
+	).Scan(&total, &completed)
+	if err != nil {
+		return fmt.Errorf("checking unit completion: %w", err)
+	}
+
+	if total > 0 && total == completed {
+		_, err = s.db.Exec(`
+			UPDATE units
+			SET actual_completion_date = date('now')
+			WHERE id = ? AND actual_completion_date IS NULL`, unitID,
+		)
+	} else {
+		_, err = s.db.Exec(`
+			UPDATE units SET actual_completion_date = NULL WHERE id = ?`, unitID,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("updating unit completion date: %w", err)
+	}
+	return nil
+}
+
+// NilIfEmpty converts an empty string to a nil *string — used when
+// optional date fields from HTML forms arrive as empty strings.
+func NilIfEmpty(s string) *string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+</file>
+
+<file path="internal/store/store.go">
+package store
+
+import "github.com/jmoiron/sqlx"
+
+// Store is the single access point for all database operations.
+// Each domain (courses, topics, notes, etc.) gets its own *_store.go
+// file with methods on this struct.
+type Store struct {
+	db *sqlx.DB
+}
+
+func New(db *sqlx.DB) *Store {
+	return &Store{db: db}
+}
+</file>
+
+<file path="internal/templates/components/status_badge.templ">
+package components
+
+import "theology-tracker/internal/models"
+
+templ CourseStatusBadge(status models.CourseStatus) {
+	switch status {
+	case models.CourseStatusActive:
+		<span class="badge badge--active">Active</span>
+	case models.CourseStatusPaused:
+		<span class="badge badge--paused">Paused</span>
+	case models.CourseStatusComplete:
+		<span class="badge badge--complete">Complete</span>
+	default:
+		<span class="badge badge--neutral">{ string(status) }</span>
+	}
+}
+
+templ WorkItemStatusBadge(status models.WorkItemStatus) {
+	switch status {
+	case models.WorkItemStatusNotStarted:
+		<span class="badge badge--neutral">Not Started</span>
+	case models.WorkItemStatusInProgress:
+		<span class="badge badge--active">In Progress</span>
+	case models.WorkItemStatusComplete:
+		<span class="badge badge--complete">Complete</span>
+	default:
+		<span class="badge badge--neutral">{ string(status) }</span>
+	}
+}
+</file>
+
+<file path="internal/templates/layout/base.templ">
+package layout
+
+templ Base(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title } — Theology Tracker</title>
+			<link rel="stylesheet" href="/static/css/app.css"/>
+		</head>
+		<body hx-boost="true">
+			<nav class="nav">
+				<a href="/" class="nav__brand">Theology Tracker</a>
+				<ul class="nav__links">
+					<li><a href="/">Dashboard</a></li>
+					<li><a href="/courses">Courses</a></li>
+					<li><a href="/topics">Topics</a></li>
+					<li><a href="/notes">Notes</a></li>
+					<li><a href="/methods">Methods</a></li>
+					<li><a href="/calendar">Calendar</a></li>
+					<li><a href="/search">
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+						Search
+					</a></li>
+				</ul>
+			</nav>
+			<main class="main">
+				{ children... }
+			</main>
+			<!-- JS loaded at end of body. HTMX first, then Alpine (defer), then app glue. -->
+			<script src="/static/js/htmx.min.js"></script>
+			<script src="/static/js/alpine.min.js" defer></script>
+			<script src="/static/js/sortable.min.js"></script>
+			<script src="/static/js/marked.min.js"></script>
+			<script src="/static/js/app.js"></script>
+		</body>
+	</html>
+}
+</file>
+
+<file path="internal/templates/pages/courses/detail.templ">
+package courses
+
+import (
+	"fmt"
+	"strconv"
+	"theology-tracker/internal/models"
+	"theology-tracker/internal/templates/components"
+	"theology-tracker/internal/templates/layout"
+)
+
+templ Detail(course *models.CourseWithProgress, units []models.UnitWithProgress) {
+	@layout.Base(course.Title) {
+		<div class="page-header">
+			<div>
+				<div class="flex items-center gap-2" style="margin-bottom: 4px;">
+					<a href="/courses" class="text-muted text-sm">← Courses</a>
+				</div>
+				<div class="flex items-center gap-2">
+					<h1>{ course.Title }</h1>
+					@components.CourseStatusBadge(course.Status)
+				</div>
+				if course.Description != "" {
+					<p class="page-header__subtitle">{ course.Description }</p>
+				}
+			</div>
+			<div class="flex gap-2">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/courses/%d/edit", course.ID)) }
+					class="btn btn--secondary"
+				>Edit</a>
+				@courseStatusControls(course)
+			</div>
+		</div>
+		<!-- Progress -->
+		<div class="card" style="margin-bottom: 24px;">
+			<div class="flex items-center justify-between" style="margin-bottom: 8px;">
+				<span class="text-sm">
+					{ strconv.Itoa(course.CompletedWorkItems) } of { strconv.Itoa(course.TotalWorkItems) } items complete
+				</span>
+				<span class="text-sm text-muted">{ strconv.Itoa(course.ProgressPercent()) }%</span>
+			</div>
+			<div class="progress">
+				<div class="progress__bar" style={ fmt.Sprintf("width: %d%%", course.ProgressPercent()) }></div>
+			</div>
+			<div class="flex gap-4 mt-4">
+				if course.StartDate != nil {
+					<span class="text-sm text-muted">Started: { *course.StartDate }</span>
+				}
+				if course.TargetCompletionDate != nil {
+					<span class="text-sm text-muted">Target: { *course.TargetCompletionDate }</span>
+				}
+				if course.ActualCompletionDate != nil {
+					<span class="text-sm text-muted">Completed: { *course.ActualCompletionDate }</span>
+				}
+			</div>
+		</div>
+		<!-- Units -->
+		<div class="flex items-center justify-between mb-4">
+			<h2>Units</h2>
+			<a
+				href={ templ.SafeURL(fmt.Sprintf("/courses/%d/units/new", course.ID)) }
+				class="btn btn--primary btn--sm"
+			>+ Add Unit</a>
+		</div>
+		if len(units) == 0 {
+			<div class="empty-state">
+				<p class="empty-state__title">No units yet</p>
+				<p class="empty-state__body">Units break the course into manageable sections.</p>
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/courses/%d/units/new", course.ID)) }
+					class="btn btn--primary"
+				>+ Add Unit</a>
+			</div>
+		} else {
+			<ul
+				class="unit-list"
+				data-sortable
+				data-sortable-url={ fmt.Sprintf("/courses/%d/units/reorder", course.ID) }
+				style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: 8px;"
+			>
+				for _, u := range units {
+					@unitRow(u, course.ID)
+				}
+			</ul>
+		}
+	}
+}
+
+templ courseStatusControls(course *models.CourseWithProgress) {
+	switch course.Status {
+	case models.CourseStatusActive:
+		<button
+			class="btn btn--secondary btn--sm"
+			hx-post={ fmt.Sprintf("/courses/%d/status", course.ID) }
+			hx-vals={ `{"status":"Paused"}` }
+			hx-target="body"
+			hx-push-url="true"
+		>Pause</button>
+		<button
+			class="btn btn--secondary btn--sm"
+			hx-post={ fmt.Sprintf("/courses/%d/status", course.ID) }
+			hx-vals={ `{"status":"Complete"}` }
+			hx-target="body"
+			hx-push-url="true"
+			hx-confirm="Mark this course complete?"
+		>Mark Complete</button>
+	case models.CourseStatusPaused:
+		<button
+			class="btn btn--secondary btn--sm"
+			hx-post={ fmt.Sprintf("/courses/%d/status", course.ID) }
+			hx-vals={ `{"status":"Active"}` }
+			hx-target="body"
+			hx-push-url="true"
+		>Resume</button>
+		<button
+			class="btn btn--secondary btn--sm"
+			hx-post={ fmt.Sprintf("/courses/%d/status", course.ID) }
+			hx-vals={ `{"status":"Complete"}` }
+			hx-target="body"
+			hx-push-url="true"
+			hx-confirm="Mark this course complete?"
+		>Mark Complete</button>
+	case models.CourseStatusComplete:
+		<button
+			class="btn btn--secondary btn--sm"
+			hx-post={ fmt.Sprintf("/courses/%d/status", course.ID) }
+			hx-vals={ `{"status":"Active"}` }
+			hx-target="body"
+			hx-push-url="true"
+			hx-confirm="Reopen this course?"
+		>Reopen</button>
+	}
+}
+
+templ unitRow(u models.UnitWithProgress, courseID int64) {
+	<li
+		class="card"
+		data-id={ strconv.FormatInt(u.ID, 10) }
+		style="display: flex; align-items: center; gap: 12px; padding: 16px;"
+	>
+		<span class="drag-handle" title="Drag to reorder">
+			<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+				<rect x="3" y="4" width="10" height="1.5" rx="1"/>
+				<rect x="3" y="7.25" width="10" height="1.5" rx="1"/>
+				<rect x="3" y="10.5" width="10" height="1.5" rx="1"/>
+			</svg>
+		</span>
+		<div style="flex: 1; min-width: 0;">
+			<div class="flex items-center gap-2" style="margin-bottom: 4px;">
+				<span class="text-sm" style="font-weight: 600;">{ u.Title }</span>
+				if u.IsComplete() {
+					<span class="badge badge--complete">Done</span>
+				}
+			</div>
+			if u.TotalWorkItems > 0 {
+				<div class="flex items-center gap-2">
+					<div class="progress" style="width: 120px;">
+						<div class="progress__bar" style={ fmt.Sprintf("width: %d%%", u.ProgressPercent()) }></div>
+					</div>
+					<span class="text-xs text-muted">
+						{ strconv.Itoa(u.CompletedWorkItems) }/{ strconv.Itoa(u.TotalWorkItems) }
+					</span>
+				</div>
+			}
+		</div>
+		if u.TargetCompletionDate != nil {
+			<span class="text-xs text-muted">Due { *u.TargetCompletionDate }</span>
+		}
+		<div class="flex gap-2">
+			<a
+				href={ templ.SafeURL(fmt.Sprintf("/courses/%d/units/%d/edit", courseID, u.ID)) }
+				class="btn btn--ghost btn--sm"
+			>Edit</a>
+			<button
+				class="btn btn--danger btn--sm btn--ghost"
+				hx-delete={ fmt.Sprintf("/courses/%d/units/%d", courseID, u.ID) }
+				hx-confirm="Delete this unit and all its work items? This cannot be undone."
+				hx-target="body"
+				hx-push-url="true"
+			>Delete</button>
+		</div>
+	</li>
+}
+</file>
+
+<file path="internal/templates/pages/courses/forms.templ">
+package courses
+
+import (
+	"fmt"
+	"theology-tracker/internal/templates/layout"
+)
+
+// CourseFormData is populated by the handler for both create and edit views.
+type CourseFormData struct {
+	IsNew       bool
+	CourseID    int64
+	Title       string
+	Description string
+	Status      string
+	StartDate   string
+	TargetDate  string
+	Error       string
+}
+
+// UnitFormData is populated by the handler for both create and edit unit views.
+type UnitFormData struct {
+	IsNew      bool
+	CourseID   int64
+	UnitID     int64
+	Title      string
+	Desc       string
+	TargetDate string
+	Error      string
+}
+
+// ── Course form ───────────────────────────────────────────────────────────────
+
+templ Form(data CourseFormData) {
+	@layout.Base(courseFormPageTitle(data)) {
+		<div class="page-header">
+			<div>
+				<div class="flex items-center gap-2" style="margin-bottom: 4px;">
+					<a href="/courses" class="text-muted text-sm">← Courses</a>
+				</div>
+				<h1>{ courseFormPageTitle(data) }</h1>
+			</div>
+		</div>
+		<div class="card" style="max-width: 640px;">
+			if data.Error != "" {
+				<div class="alert alert--error">{ data.Error }</div>
+			}
+			if data.IsNew {
+				<form method="POST" action="/courses">
+					@courseFormFields(data)
+				</form>
+			} else {
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/courses/%d", data.CourseID)) }
+				>
+					<!-- Method override for PUT via plain POST -->
+					<input type="hidden" name="_method" value="PUT"/>
+					@courseFormFields(data)
+				</form>
+			}
+		</div>
+	}
+}
+
+templ courseFormFields(data CourseFormData) {
+	<div class="form-group">
+		<label for="title">Title <span style="color: var(--color-danger);">*</span></label>
+		<input
+			type="text"
+			id="title"
+			name="title"
+			value={ data.Title }
+			placeholder="e.g. Systematic Theology I"
+			required
+			autofocus
+		/>
+	</div>
+	<div class="form-group">
+		<label for="description">Description</label>
+		<textarea
+			id="description"
+			name="description"
+			rows="3"
+			placeholder="Optional notes about this course"
+		>{ data.Description }</textarea>
+	</div>
+	if !data.IsNew {
+		<div class="form-group">
+			<label for="status">Status</label>
+			<select id="status" name="status">
+				<option value="Active" selected?={ data.Status == "Active" }>Active</option>
+				<option value="Paused" selected?={ data.Status == "Paused" }>Paused</option>
+				<option value="Complete" selected?={ data.Status == "Complete" }>Complete</option>
+			</select>
+		</div>
+	}
+	<div class="form-group">
+		<label for="start_date">Start Date</label>
+		<input
+			type="date"
+			id="start_date"
+			name="start_date"
+			value={ data.StartDate }
+		/>
+		<p class="form-hint">Optional</p>
+	</div>
+	<div class="form-group">
+		<label for="target_completion_date">Target Completion Date</label>
+		<input
+			type="date"
+			id="target_completion_date"
+			name="target_completion_date"
+			value={ data.TargetDate }
+		/>
+		<p class="form-hint">Optional</p>
+	</div>
+	<div class="flex gap-2 mt-6">
+		<button type="submit" class="btn btn--primary">
+			if data.IsNew {
+				Create Course
+			} else {
+				Save Changes
+			}
+		</button>
+		<a href="/courses" class="btn btn--secondary">Cancel</a>
+	</div>
+}
+
+// ── Unit form ─────────────────────────────────────────────────────────────────
+
+templ UnitForm(data UnitFormData) {
+	@layout.Base(unitFormPageTitle(data)) {
+		<div class="page-header">
+			<div>
+				<div class="flex items-center gap-2" style="margin-bottom: 4px;">
+					<a
+						href={ templ.SafeURL(fmt.Sprintf("/courses/%d", data.CourseID)) }
+						class="text-muted text-sm"
+					>← Course</a>
+				</div>
+				<h1>{ unitFormPageTitle(data) }</h1>
+			</div>
+		</div>
+		<div class="card" style="max-width: 640px;">
+			if data.Error != "" {
+				<div class="alert alert--error">{ data.Error }</div>
+			}
+			if data.IsNew {
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/courses/%d/units", data.CourseID)) }
+				>
+					@unitFormFields(data)
+				</form>
+			} else {
+				<form
+					method="POST"
+					action={ templ.SafeURL(fmt.Sprintf("/courses/%d/units/%d", data.CourseID, data.UnitID)) }
+				>
+					<input type="hidden" name="_method" value="PUT"/>
+					@unitFormFields(data)
+				</form>
+			}
+		</div>
+	}
+}
+
+templ unitFormFields(data UnitFormData) {
+	<div class="form-group">
+		<label for="title">Title <span style="color: var(--color-danger);">*</span></label>
+		<input
+			type="text"
+			id="title"
+			name="title"
+			value={ data.Title }
+			placeholder="e.g. Introduction to Soteriology"
+			required
+			autofocus
+		/>
+	</div>
+	<div class="form-group">
+		<label for="description">Description</label>
+		<textarea
+			id="description"
+			name="description"
+			rows="3"
+			placeholder="Optional notes about this unit"
+		>{ data.Desc }</textarea>
+	</div>
+	<div class="form-group">
+		<label for="target_completion_date">Target Completion Date</label>
+		<input
+			type="date"
+			id="target_completion_date"
+			name="target_completion_date"
+			value={ data.TargetDate }
+		/>
+		<p class="form-hint">Optional</p>
+	</div>
+	<div class="flex gap-2 mt-6">
+		<button type="submit" class="btn btn--primary">
+			if data.IsNew {
+				Add Unit
+			} else {
+				Save Changes
+			}
+		</button>
+		<a
+			href={ templ.SafeURL(fmt.Sprintf("/courses/%d", data.CourseID)) }
+			class="btn btn--secondary"
+		>Cancel</a>
+	</div>
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+func courseFormPageTitle(data CourseFormData) string {
+	if data.IsNew {
+		return "New Course"
+	}
+	return "Edit Course"
+}
+
+func unitFormPageTitle(data UnitFormData) string {
+	if data.IsNew {
+		return "Add Unit"
+	}
+	return "Edit Unit"
+}
+</file>
+
+<file path="internal/templates/pages/courses/list.templ">
+package courses
+
+import (
+	"fmt"
+	"strconv"
+	"theology-tracker/internal/models"
+	"theology-tracker/internal/templates/components"
+	"theology-tracker/internal/templates/layout"
+)
+
+templ List(courses []models.CourseWithProgress) {
+	@layout.Base("Courses") {
+		<div class="page-header">
+			<div>
+				<h1>Courses</h1>
+				<p class="page-header__subtitle">
+					{ strconv.Itoa(len(courses)) } course(s) total
+				</p>
+			</div>
+			<a href="/courses/new" class="btn btn--primary">+ New Course</a>
+		</div>
+		if len(courses) == 0 {
+			<div class="empty-state">
+				<p class="empty-state__title">No courses yet</p>
+				<p class="empty-state__body">Add your first course to get started.</p>
+				<a href="/courses/new" class="btn btn--primary">+ New Course</a>
+			</div>
+		} else {
+			<div class="course-list">
+				for _, c := range courses {
+					@courseCard(c)
+				}
+			</div>
+		}
+	}
+}
+
+templ courseCard(c models.CourseWithProgress) {
+	<div class="card" data-course-id={ strconv.FormatInt(c.ID, 10) }>
+		<div class="card__header">
+			<div class="flex items-center gap-2">
+				<h2 class="card__title">
+					<a href={ templ.SafeURL(fmt.Sprintf("/courses/%d", c.ID)) }>
+						{ c.Title }
+					</a>
+				</h2>
+				@components.CourseStatusBadge(c.Status)
+			</div>
+			<div class="flex gap-2">
+				<a
+					href={ templ.SafeURL(fmt.Sprintf("/courses/%d/edit", c.ID)) }
+					class="btn btn--secondary btn--sm"
+				>Edit</a>
+				<button
+					class="btn btn--danger btn--sm"
+					hx-delete={ fmt.Sprintf("/courses/%d", c.ID) }
+					hx-target="closest [data-course-id]"
+					hx-swap="outerHTML"
+					hx-confirm="Delete this course and all its units? This cannot be undone."
+				>Delete</button>
+			</div>
+		</div>
+		if c.Description != "" {
+			<p class="text-muted text-sm mb-4">{ c.Description }</p>
+		}
+		<div class="flex items-center gap-4" style="margin-bottom: 8px;">
+			<span class="text-sm text-muted">
+				{ strconv.Itoa(c.CompletedWorkItems) }/{ strconv.Itoa(c.TotalWorkItems) } items complete
+			</span>
+			<span class="text-sm text-muted">{ strconv.Itoa(c.ProgressPercent()) }%</span>
+		</div>
+		<div class="progress">
+			<div class="progress__bar" style={ fmt.Sprintf("width: %d%%", c.ProgressPercent()) }></div>
+		</div>
+		if c.TargetCompletionDate != nil {
+			<p class="text-sm text-muted mt-4">Target: { *c.TargetCompletionDate }</p>
+		}
+	</div>
+}
+</file>
+
+<file path="scripts/init-proj.sh">
+#!/bin/bash
+
+# 1. Download the four JS libraries into static/js/
+#    (do this once — they're vendored so the app works offline)
+curl -o static/js/htmx.min.js https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js
+curl -o static/js/alpine.min.js https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js
+curl -o static/js/sortable.min.js https://unpkg.com/sortablejs@1.15.2/Sortable.min.js
+curl -o static/js/marked.min.js https://unpkg.com/marked@12.0.0/marked.min.js
+
+# 2. Pull dependencies and generate go.sum
+go mod tidy
+
+# 3. Generate the Templ Go files
+templ generate
+
+# 4. Run with hot reload
+air
+</file>
+
+<file path="scripts/run.sh">
+#!/bin/bash
+
+templ generate
+air
+</file>
+
+<file path="static/css/app.css">
+/* ─── Reset ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ─── Tokens ─────────────────────────────────────────────── */
+:root {
+  --color-bg:          #fafaf8;
+  --color-surface:     #ffffff;
+  --color-border:      #e5e5e0;
+  --color-text:        #1a1a18;
+  --color-text-muted:  #6b6b65;
+  --color-accent:      #3b5998;
+  --color-accent-hover:#2e4577;
+  --color-danger:      #b91c1c;
+  --color-success:     #15803d;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+
+  --nav-height: 56px;
+  --content-width: 1100px;
+}
+
+/* ─── Base ───────────────────────────────────────────────── */
+html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+a { color: var(--color-accent); text-decoration: none; }
+a:hover { color: var(--color-accent-hover); text-decoration: underline; }
+
+h1 { font-size: 1.75rem; font-weight: 600; line-height: 1.3; }
+h2 { font-size: 1.375rem; font-weight: 600; line-height: 1.35; }
+h3 { font-size: 1.125rem; font-weight: 600; line-height: 1.4; }
+h4 { font-size: 1rem;     font-weight: 600; }
+
+p { margin-bottom: var(--space-4); }
+p:last-child { margin-bottom: 0; }
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--color-border);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+
+/* ─── Nav ────────────────────────────────────────────────── */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: var(--nav-height);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: 0 var(--space-6);
+}
+
+.nav__brand {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--color-text);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.nav__brand:hover { text-decoration: none; }
+
+.nav__links {
+  display: flex;
+  list-style: none;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.nav__links a {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  transition: background 0.15s, color 0.15s;
+}
+.nav__links a:hover,
+.nav__links a[aria-current="page"] {
+  background: var(--color-bg);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+/* ─── Main content ───────────────────────────────────────── */
+.main {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6);
+}
+
+/* ─── Page header ────────────────────────────────────────── */
+.page-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+}
+.page-header__title { }
+.page-header__subtitle {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  margin-top: var(--space-1);
+}
+
+/* ─── Cards ──────────────────────────────────────────────── */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+}
+.card + .card { margin-top: var(--space-4); }
+
+.card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+.card__title { font-size: 1rem; font-weight: 600; }
+
+/* ─── Buttons ────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn:hover { text-decoration: none; }
+
+.btn--primary {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+.btn--primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: #fff;
+}
+
+.btn--secondary {
+  background: transparent;
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+.btn--secondary:hover { background: var(--color-bg); }
+
+.btn--danger {
+  background: transparent;
+  color: var(--color-danger);
+  border-color: var(--color-border);
+}
+.btn--danger:hover { background: #fef2f2; border-color: var(--color-danger); }
+
+.btn--sm { padding: var(--space-1) var(--space-3); font-size: 0.825rem; }
+.btn--ghost { border-color: transparent; background: transparent; }
+.btn--ghost:hover { background: var(--color-bg); }
+
+/* ─── Forms ──────────────────────────────────────────────── */
+.form-group { margin-bottom: var(--space-5); }
+
+label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: var(--space-2);
+  color: var(--color-text);
+}
+
+.form-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+
+input[type="text"],
+input[type="date"],
+input[type="number"],
+input[type="search"],
+select,
+textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  appearance: none;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgb(59 89 152 / 0.12);
+}
+
+textarea { resize: vertical; min-height: 120px; line-height: 1.6; }
+
+/* ─── Badge / pill ───────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: 100px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.badge--neutral  { background: var(--color-bg); color: var(--color-text-muted); border: 1px solid var(--color-border); }
+.badge--active   { background: #dbeafe; color: #1e40af; }
+.badge--paused   { background: #fef3c7; color: #92400e; }
+.badge--complete { background: #dcfce7; color: #166534; }
+
+/* ─── Progress bar ───────────────────────────────────────── */
+.progress {
+  height: 6px;
+  background: var(--color-border);
+  border-radius: 100px;
+  overflow: hidden;
+}
+.progress__bar {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 100px;
+  transition: width 0.3s ease;
+}
+
+/* ─── Table ──────────────────────────────────────────────── */
+.table-wrapper { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--color-bg); }
+
+/* ─── Empty state ────────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: var(--space-10) var(--space-6);
+  color: var(--color-text-muted);
+}
+.empty-state__title { font-size: 1rem; font-weight: 600; margin-bottom: var(--space-2); }
+.empty-state__body { font-size: 0.9rem; margin-bottom: var(--space-6); }
+
+/* ─── Alert / flash ──────────────────────────────────────── */
+.alert {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  margin-bottom: var(--space-4);
+}
+.alert--error   { background: #fef2f2; color: var(--color-danger); border: 1px solid #fecaca; }
+.alert--success { background: #f0fdf4; color: var(--color-success); border: 1px solid #bbf7d0; }
+
+/* ─── HTMX loading indicator ─────────────────────────────── */
+.htmx-indicator { opacity: 0; transition: opacity 0.2s; }
+.htmx-request .htmx-indicator { opacity: 1; }
+.htmx-request.htmx-indicator { opacity: 1; }
+
+/* ─── Drag handle (Sortable) ─────────────────────────────── */
+.drag-handle {
+  cursor: grab;
+  color: var(--color-text-muted);
+  padding: var(--space-2);
+}
+.drag-handle:active { cursor: grabbing; }
+.sortable-ghost { opacity: 0.4; background: var(--color-bg); }
+
+/* ─── Markdown rendered output ───────────────────────────── */
+.prose h1, .prose h2, .prose h3 { margin: var(--space-6) 0 var(--space-3); }
+.prose p  { margin-bottom: var(--space-4); }
+.prose ul, .prose ol { padding-left: var(--space-6); margin-bottom: var(--space-4); }
+.prose li { margin-bottom: var(--space-1); }
+.prose blockquote {
+  border-left: 3px solid var(--color-border);
+  padding-left: var(--space-4);
+  color: var(--color-text-muted);
+  margin: var(--space-4) 0;
+}
+.prose code  { font-family: var(--font-mono); }
+.prose pre   { background: var(--color-bg); padding: var(--space-4); border-radius: var(--radius-md); overflow-x: auto; }
+.prose hr    { border: none; border-top: 1px solid var(--color-border); margin: var(--space-6) 0; }
+
+/* ─── Utility ────────────────────────────────────────────── */
+.text-muted  { color: var(--color-text-muted); }
+.text-sm     { font-size: 0.875rem; }
+.text-xs     { font-size: 0.8rem; }
+.mt-4  { margin-top: var(--space-4); }
+.mt-6  { margin-top: var(--space-6); }
+.mb-4  { margin-bottom: var(--space-4); }
+.flex  { display: flex; }
+.items-center { align-items: center; }
+.gap-2 { gap: var(--space-2); }
+.gap-4 { gap: var(--space-4); }
+.justify-between { justify-content: space-between; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+</file>
+
+<file path="static/js/app.js">
+// app.js — minimal glue. Heavy lifting is done server-side via HTMX.
+
+// ─── Sortable drag-and-drop for unit lists ───────────────────────────────────
+// Any element with data-sortable will become a drag-and-drop list.
+// On drop, HTMX posts the new order to data-sortable-url.
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("[data-sortable]").forEach((el) => {
+    Sortable.create(el, {
+      handle: ".drag-handle",
+      animation: 150,
+      ghostClass: "sortable-ghost",
+      onEnd(evt) {
+        const url = el.dataset.sortableUrl;
+        if (!url) return;
+
+        const ids = [...el.querySelectorAll("[data-id]")].map(
+          (item) => item.dataset.id
+        );
+
+        htmx.ajax("POST", url, {
+          values: { ids: ids },
+          target: el,
+          swap: "none",
+        });
+      },
+    });
+  });
+});
+
+// ─── Markdown live preview ───────────────────────────────────────────────────
+// Used by the note editor. Elements:
+//   [data-md-source]  — the textarea
+//   [data-md-preview] — the rendered output div
+//
+// Wire up once on load; HTMX re-wires after any hx-swap that recreates them.
+function initMarkdownEditor(root = document) {
+  const source = root.querySelector("[data-md-source]");
+  const preview = root.querySelector("[data-md-preview]");
+  if (!source || !preview) return;
+
+  const render = () => {
+    preview.innerHTML = marked.parse(source.value);
+  };
+
+  render();
+  source.addEventListener("input", render);
+}
+
+document.addEventListener("DOMContentLoaded", () => initMarkdownEditor());
+document.addEventListener("htmx:afterSwap", (e) => initMarkdownEditor(e.detail.elt));
+
+// ─── Active nav link ─────────────────────────────────────────────────────────
+function markActiveNav() {
+  const path = window.location.pathname;
+  document.querySelectorAll(".nav__links a").forEach((link) => {
+    const href = link.getAttribute("href");
+    const isActive = href === "/" ? path === "/" : path.startsWith(href);
+    link.setAttribute("aria-current", isActive ? "page" : "false");
+  });
+}
+
+document.addEventListener("DOMContentLoaded", markActiveNav);
+document.addEventListener("htmx:afterSettle", markActiveNav);
+</file>
+
+<file path=".air.toml">
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # templ generate must run before go build so *_templ.go files are fresh.
+  cmd = "templ generate && go build -o ./tmp/theology-tracker ./cmd/server"
+  bin = "./tmp/theology-tracker"
+  delay = 500
+
+  # Watch .templ files as well as .go files.
+  include_ext = ["go", "templ"]
+
+  # Ignore generated files — air would otherwise loop on its own output.
+  exclude_regex = ["_templ\\.go$"]
+  exclude_dir   = ["tmp", "data", "static", "vendor"]
+
+  log = "tmp/build-errors.log"
+
+[screen]
+  clear_on_rebuild = true
+
+[log]
+  time = true
+</file>
+
+<file path=".gitignore">
+# Build output
+tmp/
+theology-tracker
+
+# Generated Templ files — regenerated by `templ generate`, not committed
+*_templ.go
+
+# Database — this is personal data, never commit it
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Go module cache
+vendor/
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+</file>
+
+<file path="docker-compose.yml">
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      # The SQLite database file lives on the host at ./data/theology.db.
+      # Copying that file is a complete backup of all application data.
+      - ./data:/app/data
+    environment:
+      PORT: "3000"
+      DB_PATH: "/app/data/theology.db"
+    restart: unless-stopped
+</file>
+
+<file path="Dockerfile">
+# ── Stage 1: Build ───────────────────────────────────────────────────────────
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+# Install templ CLI for code generation
+RUN go install github.com/a-h/templ/cmd/templ@v0.2.793
+
+# Cache dependencies separately from source
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy full source
+COPY . .
+
+# Generate *_templ.go files from .templ files
+RUN templ generate
+
+# Build the binary. CGO_ENABLED=0 keeps it static so the runtime image
+# does not need glibc. -ldflags trims debug info and symbol table.
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /theology-tracker \
+    ./cmd/server
+
+# ── Stage 2: Runtime ─────────────────────────────────────────────────────────
+FROM alpine:3.19
+
+# ca-certificates is needed if the app ever makes outbound TLS calls.
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /app
+
+COPY --from=builder /theology-tracker .
+COPY --from=builder /app/static ./static
+
+# The data directory is the bind mount target — it must exist in the image
+# so Docker can mount into it even if the host path doesn't exist yet.
+RUN mkdir -p /app/data
+
+EXPOSE 3000
+
+CMD ["./theology-tracker"]
+</file>
+
+<file path="go.mod">
+module theology-tracker
+
+go 1.25.0
+
+require (
+	github.com/go-chi/chi/v5 v5.1.0
+	github.com/jmoiron/sqlx v1.3.5
+	modernc.org/sqlite v1.33.1
+)
+
+require (
+	github.com/a-h/templ v0.3.1020 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/ncruces/go-strftime v0.1.9 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/tools v0.35.0 // indirect
+	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
+	modernc.org/libc v1.55.3 // indirect
+	modernc.org/mathutil v1.6.0 // indirect
+	modernc.org/memory v1.8.0 // indirect
+	modernc.org/strutil v1.2.0 // indirect
+	modernc.org/token v1.1.0 // indirect
+)
+</file>
+
+<file path="cmd/server/main.go">
+package main
+
+import (
+	"log"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
+
+	"theology-tracker/internal/config"
+	"theology-tracker/internal/database"
+	"theology-tracker/internal/handlers"
+	appmw "theology-tracker/internal/middleware"
+	"theology-tracker/internal/store"
+)
+
+func main() {
+	cfg := config.Load()
+
+	db, err := database.Open(cfg.DBPath)
+	if err != nil {
+		log.Fatalf("database: %v", err)
+	}
+	defer db.Close()
+
+	if err := database.RunMigrations(db); err != nil {
+		log.Fatalf("migrations: %v", err)
+	}
+
+	s := store.New(db)
+	h := handlers.New(s)
+
+	r := chi.NewRouter()
+	r.Use(chimw.Recoverer)
+	r.Use(chimw.Logger)
+	r.Use(appmw.MethodOverride) // must come before routing so _method is applied first
+
+	// Static assets
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
+
+	// Dashboard
+	r.Get("/", h.Dashboard)
+
+	// Courses
+	r.Get("/courses", h.ListCourses)
+	r.Get("/courses/new", h.NewCourseForm)
+	r.Post("/courses", h.CreateCourse)
+	r.Get("/courses/{courseID}", h.GetCourse)
+	r.Get("/courses/{courseID}/edit", h.EditCourseForm)
+	r.Put("/courses/{courseID}", h.UpdateCourse)
+	r.Delete("/courses/{courseID}", h.DeleteCourse)
+	r.Post("/courses/{courseID}/status", h.UpdateCourseStatus)
+
+	// Units (nested under courses)
+	r.Get("/courses/{courseID}/units/new", h.NewUnitForm)
+	r.Post("/courses/{courseID}/units", h.CreateUnit)
+	r.Get("/courses/{courseID}/units/{unitID}/edit", h.EditUnitForm)
+	r.Put("/courses/{courseID}/units/{unitID}", h.UpdateUnit)
+	r.Delete("/courses/{courseID}/units/{unitID}", h.DeleteUnit)
+	r.Post("/courses/{courseID}/units/reorder", h.ReorderUnits)
+
+	log.Printf("server listening on :%s", cfg.Port)
+	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {
+		log.Fatalf("server: %v", err)
+	}
+}
+</file>
+
+<file path="internal/middleware/middleware.go">
+package middleware
+
+import (
+	"log"
+	"net/http"
+	"strings"
+	"time"
+)
+
+// RequestLogger logs method, path, status code, and duration for every request.
+func RequestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		wrapped := &responseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(wrapped, r)
+		log.Printf("%s %s %d %s", r.Method, r.URL.Path, wrapped.status, time.Since(start))
+	})
+}
+
+// responseWriter captures the status code written by downstream handlers.
+type responseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rw *responseWriter) WriteHeader(status int) {
+	rw.status = status
+	rw.ResponseWriter.WriteHeader(status)
+}
+
+// MethodOverride checks for a _method field in POST form bodies and
+// rewrites r.Method to the specified value (PUT or DELETE).
+// This lets plain HTML forms submit PUT and DELETE requests.
+func MethodOverride(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			override := r.FormValue("_method")
+			if override == "" {
+				// Try the X-HTTP-Method-Override header as a fallback.
+				override = r.Header.Get("X-HTTP-Method-Override")
+			}
+			override = strings.ToUpper(override)
+			if override == http.MethodPut || override == http.MethodDelete || override == http.MethodPatch {
+				r.Method = override
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+</file>
+
+<file path="internal/models/scripture.go">
+package models
+
+import (
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+type ScriptureEntityType string
+
+const (
+	ScriptureEntityWorkItem ScriptureEntityType = "WorkItem"
+	ScriptureEntityTopic    ScriptureEntityType = "Topic"
+	ScriptureEntitySession  ScriptureEntityType = "Session"
+)
+
+type ScriptureTag struct {
+	ID         int64               `db:"id"`
+	Reference  string              `db:"reference"`
+	EntityType ScriptureEntityType `db:"entity_type"`
+	EntityID   int64               `db:"entity_id"`
+}
+
+// ── Reference validation ──────────────────────────────────────────────────────
+
+// validBooks is the canonical set of 3-character book abbreviations.
+var validBooks = map[string]bool{
+	// Old Testament
+	"Gen": true, "Exo": true, "Lev": true, "Num": true, "Deu": true,
+	"Jos": true, "Jdg": true, "Rut": true, "1Sa": true, "2Sa": true,
+	"1Ki": true, "2Ki": true, "1Ch": true, "2Ch": true, "Ezr": true,
+	"Neh": true, "Est": true, "Job": true, "Psa": true, "Pro": true,
+	"Ecc": true, "Sol": true, "Isa": true, "Jer": true, "Lam": true,
+	"Eze": true, "Dan": true, "Hos": true, "Joe": true, "Amo": true,
+	"Oba": true, "Jon": true, "Mic": true, "Nah": true, "Hab": true,
+	"Zep": true, "Hag": true, "Zec": true, "Mal": true,
+	// New Testament
+	"Mat": true, "Mrk": true, "Luk": true, "Jhn": true, "Act": true,
+	"Rom": true, "1Co": true, "2Co": true, "Gal": true, "Eph": true,
+	"Php": true, "Col": true, "1Th": true, "2Th": true, "1Ti": true,
+	"2Ti": true, "Tit": true, "Phm": true, "Heb": true, "Jas": true,
+	"1Pe": true, "2Pe": true, "1Jn": true, "2Jn": true, "3Jn": true,
+	"Jud": true, "Rev": true,
+}
+
+// refPattern matches: "Rom 8", "Rom 8:28", "Rev 22:1–5", "Psa 119"
+// The en-dash (–) in ranges is also handled.
+var refPattern = regexp.MustCompile(
+	`^([A-Z][a-z0-9]{2})\s+(\d+)(?::(\d+)(?:[–\-](\d+))?)?$`,
+)
+
+// ValidateScriptureReference checks format and book abbreviation.
+// Returns a normalised reference string on success, or an error.
+func ValidateScriptureReference(ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	m := refPattern.FindStringSubmatch(ref)
+	if m == nil {
+		return "", fmt.Errorf("invalid format: expected e.g. \"Rom 8:28\" or \"Gen 1:1–3\"")
+	}
+
+	book := m[1]
+	if !validBooks[book] {
+		return "", fmt.Errorf("unknown book abbreviation: %q", book)
+	}
+
+	// Validate verse numbers are positive integers.
+	if m[3] != "" {
+		v, _ := strconv.Atoi(m[3])
+		if v < 1 {
+			return "", fmt.Errorf("verse number must be a positive integer")
+		}
+	}
+	if m[4] != "" {
+		v, _ := strconv.Atoi(m[4])
+		if v < 1 {
+			return "", fmt.Errorf("end verse must be a positive integer")
+		}
+	}
+
+	// Normalise: replace ASCII hyphen in ranges with en-dash.
+	normalised := strings.ReplaceAll(ref, "-", "–")
+	return normalised, nil
+}
+
+// ChapterPrefix returns the "Book Chapter" prefix used for range queries.
+// e.g. "Rom 8:28" → "Rom 8" so a LIKE 'Rom 8%' query finds all of Romans 8.
+func ChapterPrefix(ref string) string {
+	parts := strings.SplitN(ref, ":", 2)
+	return strings.TrimSpace(parts[0])
+}
+</file>
+
+</files>
